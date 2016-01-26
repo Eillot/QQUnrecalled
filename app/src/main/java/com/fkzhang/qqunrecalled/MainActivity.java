@@ -111,7 +111,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private ComponentName getIconComponentName() {
-        return new ComponentName(this, "com.fkzhang.wechatunrecalled.MainActivity-Alias");
+        return new ComponentName(this, "com.fkzhang.qqunrecalled.MainActivity-Alias");
     }
 
     private boolean isIconEnabled() {
