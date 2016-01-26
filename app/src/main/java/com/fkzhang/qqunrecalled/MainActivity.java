@@ -46,10 +46,10 @@ public class MainActivity extends AppCompatActivity {
         });
 
         EditText recalled_message = (EditText) findViewById(R.id.editText);
-        if (TextUtils.isEmpty(settingsHelper.getString("recalled", null))) {
-            settingsHelper.setString("recalled", getString(R.string.recalled_msg_content));
+        if (TextUtils.isEmpty(settingsHelper.getString("qq_recalled", null))) {
+            settingsHelper.setString("qq_recalled", getString(R.string.qq_recalled_msg_content));
         }
-        recalled_message.setText(settingsHelper.getString("recalled", "(Prevented)"));
+        recalled_message.setText(settingsHelper.getString("qq_recalled", "(Prevented)"));
         recalled_message.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -63,7 +63,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void afterTextChanged(Editable s) {
-                settingsHelper.setString("recalled", s.toString());
+                settingsHelper.setString("qq_recalled", s.toString());
             }
         });
 

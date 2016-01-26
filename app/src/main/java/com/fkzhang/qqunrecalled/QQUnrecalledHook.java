@@ -160,7 +160,7 @@ public class QQUnrecalledHook {
             msg = getFriendName(friendUin, senderUin);
         }
         mSettings.reload();
-        msg += " " + mSettings.getString("recalled", "尝试撤回一条消息 （已阻止)");
+        msg += " " + mSettings.getString("qq_recalled", "尝试撤回一条消息 （已阻止)");
 
         if (mSettings.getBoolean("show_content", false)) {
             String message = getMessage(time);
@@ -292,7 +292,8 @@ public class QQUnrecalledHook {
                 return;
 
             mMessageCache.remove(time);
-            String title = getFriendName(null, uin) + " " + mSettings.getString("recalled", "尝试撤回一条消息");
+            String title = getFriendName(null, uin) + " " + mSettings.getString("qq_recalled",
+                    "尝试撤回一条消息");
             showTextNotification(title, msg, getAvatar(uin));
         } catch (Throwable t) {
             XposedBridge.log(t);
