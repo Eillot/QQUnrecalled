@@ -21,10 +21,18 @@
         android:text="@string/enable_notification" />
 
     <Switch
-        android:id="@+id/show_content"
+        android:id="@+id/enable_troopassistant_recall_notification"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_below="@id/enable_recall_notification"
+        android:padding="15dp"
+        android:text="@string/enable_troopassistant_notification" />
+
+    <Switch
+        android:id="@+id/show_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/enable_troopassistant_recall_notification"
         android:padding="15dp"
         android:text="@string/show_content" />
 

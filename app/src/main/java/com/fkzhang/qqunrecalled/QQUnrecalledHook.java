@@ -10,17 +10,21 @@ import android.graphics.Color;
 import android.support.v4.app.TaskStackBuilder;
 import android.text.TextUtils;
 
-import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 
+import static com.fkzhang.qqunrecalled.ReflectionUtil.getMethod;
+import static com.fkzhang.qqunrecalled.ReflectionUtil.getObjectField;
+import static com.fkzhang.qqunrecalled.ReflectionUtil.getStaticMethod;
+import static com.fkzhang.qqunrecalled.ReflectionUtil.invokeMethod;
+import static com.fkzhang.qqunrecalled.ReflectionUtil.invokeStaticMethod;
+import static com.fkzhang.qqunrecalled.ReflectionUtil.isCallingFrom;
 import static de.robv.android.xposed.XposedHelpers.callMethod;
 import static de.robv.android.xposed.XposedHelpers.callStaticMethod;
 import static de.robv.android.xposed.XposedHelpers.findAndHookMethod;
@@ -32,19 +36,18 @@ import static de.robv.android.xposed.XposedHelpers.setObjectField;
  */
 public class QQUnrecalledHook {
     private final SettingsHelper mSettings;
-    private Set<Long> RevokedUids;
     private Class<?> MessageRecordFactory;
     private Object mQQAppInterface;
     private String mSelfUin;
     private Class<?> ContactUtils;
     private Class<?> MessageRecord;
-    private HashMap<Long, String> mMessageCache;
     private Context mNotificationContext;
     private Class<?> mNotificationClass;
+    private Method mMessageGetter;
+    private Object mQQMessageFacade;
+    private Map mTroopMap;
 
     public QQUnrecalledHook() {
-        RevokedUids = new HashSet<>();
-        mMessageCache = new HashMap<>();
         mSettings = new SettingsHelper("com.fkzhang.qqunrecalled");
     }
 
@@ -64,10 +67,6 @@ public class QQUnrecalledHook {
                             throws Throwable {
                         param.setResult(null); // prevent call
 
-                        if (isCallingFrom("C2CMessageProcessor")) {
-                            return;
-                        }
-
                         ArrayList list = (ArrayList) param.args[0];
                         if (list == null || list.isEmpty())
                             return;
@@ -77,35 +76,13 @@ public class QQUnrecalledHook {
                         initObjects(param.thisObject, loader);
 
                         try {
-                            setMessageTip(param.thisObject, obj);
+                            setMessageTip(obj);
                         } catch (Throwable t) {
                             XposedBridge.log(t);
                         }
 
                     }
                 });
-
-        findAndHookMethod("com.tencent.mobileqq.app.message.QQMessageFacade", loader,
-                "notifyObservers", Object.class, new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                        Object object = param.args[0];
-                        if (!object.getClass().getName().contains("MessageForText"))
-                            return;
-
-                        storeMessage(object);
-                    }
-                });
-    }
-
-    protected boolean isCallingFrom(String className) {
-        StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
-        for (StackTraceElement element : stackTraceElements) {
-            if (element.getClassName().contains(className)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void initObjects(Object thisObject, ClassLoader loader) {
@@ -132,54 +109,91 @@ public class QQUnrecalledHook {
             if (mNotificationClass == null) {
                 mNotificationClass = findClass("com.tencent.mobileqq.activity.SplashActivity", loader);
             }
+
+            if (mMessageGetter == null) {
+                mMessageGetter = getMethod(thisObject, "a", List.class, String.class, int.class,
+                        long.class, long.class);
+            }
+            if (mQQMessageFacade == null) {
+                mQQMessageFacade = thisObject;
+            }
+            if (MessageRecord == null) {
+                MessageRecord = findClass("com.tencent.mobileqq.data.MessageRecord", loader);
+            }
+            if (mTroopMap == null) {
+                Class<?> TroopAssistantManagerClass =
+                        findClass("com.tencent.mobileqq.managers.TroopAssistantManager", loader);
+                mTroopMap = (Map) getObjectField(invokeStaticMethod(getStaticMethod(
+                        TroopAssistantManagerClass, "a", TroopAssistantManagerClass)), "a",
+                        Map.class);
+            }
+
         } catch (Throwable t) {
             XposedBridge.log(t);
         }
 
     }
 
-    private void setMessageTip(Object QQMessageFacade, Object revokeMsgInfo) {
+    private void setMessageTip(Object revokeMsgInfo) {
         long time = (long) getObjectField(revokeMsgInfo, "c", long.class);
 
-        if (RevokedUids.contains(time)) {
-            return;
-        }
-        RevokedUids.add(time);
 
         String friendUin = (String) getObjectField(revokeMsgInfo, "a", String.class);
         String senderUin = (String) getObjectField(revokeMsgInfo, "b", String.class);
 
+        if (mSelfUin.equals(senderUin))
+            return;
+
         int istroop = (int) getObjectField(revokeMsgInfo, "a", int.class);
-        long msgUid = (long) getObjectField(revokeMsgInfo, "b", long.class)
-                + new Random().nextInt();
+        long msgUid = (long) getObjectField(revokeMsgInfo, "b", long.class);
         long shmsgseq = (long) getObjectField(revokeMsgInfo, "a", long.class);
-        String msg;
-        if (istroop == 0) {
-            msg = "对方";
-        } else {
-            msg = getFriendName(friendUin, senderUin);
-        }
+
+        String uin = istroop == 0 ? senderUin : friendUin;
+
+        long id = getMessageId(uin, istroop, shmsgseq, msgUid);
+
+        String msg = istroop == 0 ? "对方" : getFriendName(null, senderUin);
+
         mSettings.reload();
-        msg += " " + mSettings.getString("qq_recalled", "尝试撤回一条消息 （已阻止)");
+        if (id != -1) {
+            if (isCallingFrom("C2CMessageProcessor"))
+                return;
 
-        if (mSettings.getBoolean("show_content", false)) {
-            String message = getMessage(time);
-            if (!TextUtils.isEmpty(message)) {
-                msg += ": " + message;
+            msg += " " + mSettings.getString("qq_recalled", "尝试撤回一条消息 （已阻止)");
+
+            String message = getMessage(uin, istroop, shmsgseq, msgUid);
+
+            if (mSettings.getBoolean("show_content", false)) {
+                if (!TextUtils.isEmpty(message)) {
+                    msg += ": " + message;
+                }
             }
+
+            showMessageTip(friendUin, senderUin, msgUid, shmsgseq, time, msg, istroop);
+
+            if (!mSettings.getBoolean("enable_recall_notification", true) ||
+                    (!mSettings.getBoolean("enable_troopassistant_recall_notification", false)
+                            && istroop == 1 && isInTroopAssistant(uin)))
+                return;
+
+            showMessageNotification(senderUin, message);
+        } else {
+            msg += " " + mSettings.getString("qq_recalled_offline", "撤回了一条消息 (离线时)");
+            showMessageTip(friendUin, senderUin, msgUid, shmsgseq, time, msg, istroop);
         }
 
-        List tips = createMessageTip(friendUin, senderUin, msgUid, shmsgseq, time + 1,
-                msg, istroop);
+    }
+
+    private void showMessageTip(String friendUin, String senderUin, long msgUid, long shmsgseq,
+                                long time, String msg, int istroop) {
+        if (msgUid != 0) {
+            msgUid += new Random().nextInt();
+        }
+        List tips = createMessageTip(friendUin, senderUin, msgUid, shmsgseq, time + 1, msg, istroop);
         if (tips == null || tips.isEmpty())
             return;
 
-        callMethod(QQMessageFacade, "a", tips, mSelfUin);
-
-        if (!mSettings.getBoolean("enable_recall_notification", true))
-            return;
-
-        showMessageNotification(senderUin, time);
+        callMethod(mQQMessageFacade, "a", tips, mSelfUin);
     }
 
     private List createMessageTip(String friendUin, String senderUin, long msgUid,
@@ -224,74 +238,34 @@ public class QQUnrecalledHook {
         return nickname;
     }
 
-    public static Object getObjectField(Object o, String fieldName, String type) {
-        Field[] fields = o.getClass().getDeclaredFields();
-        for (Field field : fields) {
-            if (field.getName().equals(fieldName) && field.getType().getName().equals(type)) {
-                field.setAccessible(true);
-                try {
-                    return field.get(o);
-                } catch (Exception e) {
-                    return null;
-                }
-            }
-        }
-        return null;
+
+    protected String getMessage(String uin, int istroop, long shmsgseq, long msgUid) {
+        List list = (List) invokeMethod(mMessageGetter, mQQMessageFacade, uin, istroop,
+                shmsgseq, msgUid);
+
+        if (list == null || list.isEmpty())
+            return null;
+
+        return (String) getObjectField(MessageRecord, list.get(0), "msg");
     }
 
-    public static Object getObjectField(Object o, String fieldName, Class<?> type) {
-        return getObjectField(o, fieldName, type.getName());
+
+    protected long getMessageId(String uin, int istroop, long shmsgseq, long msgUid) {
+        List list = (List) invokeMethod(mMessageGetter, mQQMessageFacade, uin, istroop,
+                shmsgseq, msgUid);
+
+        if (list == null || list.isEmpty())
+            return -1;
+
+        return (long) getObjectField(MessageRecord, list.get(0), "msgUid");
     }
 
-    public static Object getObjectField(Class<?> cls, Object o, String fieldName) {
+
+    protected void showMessageNotification(String uin, String msg) {
         try {
-            Field field = cls.getDeclaredField(fieldName);
-            field.setAccessible(true);
-            return field.get(o);
-        } catch (Exception e) {
-            XposedBridge.log(e);
-        }
-        return null;
-    }
-
-    protected void storeMessage(Object object) {
-        if (MessageRecord == null) {
-            MessageRecord = object.getClass().getSuperclass().getSuperclass();
-        }
-        try {
-            long time = (long) getObjectField(MessageRecord, object, "time");
-            String msg = (String) getObjectField(MessageRecord, object, "msg");
-
-            mMessageCache.put(time, msg);
-            manageMessages();
-        } catch (Exception e) {
-            XposedBridge.log(e);
-        }
-    }
-
-    protected String getMessage(long time) {
-        if (mMessageCache.containsKey(time)) {
-            return mMessageCache.get(time);
-        }
-        return null;
-    }
-
-    protected void manageMessages() {
-        long time = System.currentTimeMillis() / 1000;
-        for (long t : mMessageCache.keySet()) {
-            if (time - t > 10800) {
-                mMessageCache.remove(t);
-            }
-        }
-    }
-
-    protected void showMessageNotification(String uin, long time) {
-        try {
-            String msg = getMessage(time);
             if (TextUtils.isEmpty(msg))
                 return;
 
-            mMessageCache.remove(time);
             String title = getFriendName(null, uin) + " " + mSettings.getString("qq_recalled",
                     "尝试撤回一条消息");
             showTextNotification(title, msg, getAvatar(uin));
@@ -354,6 +328,10 @@ public class QQUnrecalledHook {
 
     protected int getNotificationId() {
         return (int) (System.currentTimeMillis() & 0xfffffff);
+    }
+
+    protected boolean isInTroopAssistant(String uin) {
+        return mTroopMap != null && mTroopMap.containsKey(uin);
     }
 
 

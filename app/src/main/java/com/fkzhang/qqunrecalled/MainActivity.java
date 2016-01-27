@@ -25,17 +25,36 @@ public class MainActivity extends AppCompatActivity {
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        final SettingsHelper settingsHelper = new SettingsHelper(this, "com.fkzhang.qqunrecalled");
+        final SettingsHelper settingsHelper = new SettingsHelper(this,
+                "com.fkzhang.qqunrecalled");
 
-        Switch enable_recall_notification = (Switch) findViewById(R.id.enable_recall_notification);
-        enable_recall_notification.setChecked(settingsHelper.getBoolean("enable_recall_notification", true));
-        enable_recall_notification.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                settingsHelper.setBoolean("enable_recall_notification", isChecked);
-            }
-        });
+        final Switch enable_troopassistant_recall_notification =
+                (Switch) findViewById(R.id.enable_troopassistant_recall_notification);
+        enable_troopassistant_recall_notification.setChecked(settingsHelper
+                .getBoolean("enable_troopassistant_recall_notification", false));
+        enable_troopassistant_recall_notification.setOnCheckedChangeListener(
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                        settingsHelper.setBoolean("enable_troopassistant_recall_notification",
+                                isChecked);
+                    }
+                });
 
+        Switch enable_recall_notification =
+                (Switch) findViewById(R.id.enable_recall_notification);
+        enable_recall_notification.setChecked(settingsHelper
+                .getBoolean("enable_recall_notification", true));
+        enable_recall_notification.setOnCheckedChangeListener(
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                        settingsHelper.setBoolean("enable_recall_notification", isChecked);
+                        if (!isChecked) {
+                            enable_troopassistant_recall_notification.setChecked(false);
+                        }
+                    }
+                });
         Switch show_content = (Switch) findViewById(R.id.show_content);
         show_content.setChecked(settingsHelper.getBoolean("show_content", false));
         show_content.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -47,7 +66,8 @@ public class MainActivity extends AppCompatActivity {
 
         EditText recalled_message = (EditText) findViewById(R.id.editText);
         if (TextUtils.isEmpty(settingsHelper.getString("qq_recalled", null))) {
-            settingsHelper.setString("qq_recalled", getString(R.string.qq_recalled_msg_content));
+            settingsHelper.setString("qq_recalled",
+                    getString(R.string.qq_recalled_msg_content));
         }
         recalled_message.setText(settingsHelper.getString("qq_recalled", "(Prevented)"));
         recalled_message.addTextChangedListener(new TextWatcher() {
@@ -63,9 +83,15 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void afterTextChanged(Editable s) {
-                settingsHelper.setString("qq_recalled", s.toString());
+                String t = s.toString();
+                if (TextUtils.isEmpty(t))
+                    return;
+                settingsHelper.setString("qq_recalled", t);
             }
         });
+
+        settingsHelper.setString("qq_recalled_offline",
+                getString(R.string.qq_recalled_offline));
 
     }
 
@@ -106,8 +132,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void toggleLauncherIcon(boolean newValue) {
         PackageManager packageManager = this.getPackageManager();
-        int state = newValue ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
-        packageManager.setComponentEnabledSetting(getIconComponentName(), state, PackageManager.DONT_KILL_APP);
+        int state = newValue ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED :
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        packageManager.setComponentEnabledSetting(getIconComponentName(), state,
+                PackageManager.DONT_KILL_APP);
     }
 
     private ComponentName getIconComponentName() {

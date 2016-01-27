@@ -7,4 +7,6 @@
     <string name="hide_icon">Hide launcher icon</string>
     <string name="show_icon">Show launcher icon</string>
     <string name="qq_recalled_msg_content">tried to recall a message (Prevented)</string>
+    <string name="enable_troopassistant_notification">Enable message recall notification for groupchat in troopassistant</string>
+    <string name="qq_recalled_offline">recalled a message (offline)</string>
 </resources>

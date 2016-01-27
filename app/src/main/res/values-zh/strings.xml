@@ -7,4 +7,6 @@
     <string name="show_content">显示已撤回内容(只支持文字)</string>
     <string name="enable_notification">开启消息撤回通知</string>
     <string name="recalled_message">撤回消息</string>
+    <string name="enable_troopassistant_notification">开启群助手里的群聊消息撤回通知</string>
+    <string name="qq_recalled_offline">撤回了一条消息 (离线时)</string>
 </resources>
