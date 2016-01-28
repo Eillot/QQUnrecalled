@@ -183,7 +183,7 @@ public class QQUnrecalledHook {
 
             showMessageNotification(istroop == 0 ? null : friendUin, senderUin, message);
         } else {
-            msg += " " + mSettings.getString("qq_recalled_offline", "撤回了一条消息 (离线时)");
+            msg += " " + mSettings.getString("qq_recalled_offline", "撤回了一条消息 (没收到)");
             showMessageTip(friendUin, senderUin, msgUid, shmsgseq, time, msg, istroop);
         }
 
