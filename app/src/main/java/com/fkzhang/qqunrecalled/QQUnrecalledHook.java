@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.TaskStackBuilder;
 import android.text.TextUtils;
 
@@ -43,12 +44,14 @@ public class QQUnrecalledHook {
     private Class<?> ContactUtils;
     private Class<?> MessageRecord;
     private Context mNotificationContext;
-    private Class<?> mNotificationClass;
+    private Class<?> NotificationClass;
     private Method mMessageGetter;
     private Object mQQMessageFacade;
     private Map mTroopMap;
     private Method mGetTroopInfo;
     private Object mTroopManager;
+    private Class<?> BaseApplicationClass;
+    private Class<?> TroopAssistantManagerClass;
 
     public QQUnrecalledHook() {
         mSettings = new SettingsHelper("com.fkzhang.qqunrecalled");
@@ -90,12 +93,12 @@ public class QQUnrecalledHook {
 
     private void initObjects(Object thisObject, ClassLoader loader) {
         try {
-            if (mQQAppInterface == null) {
-                mQQAppInterface = getObjectField(thisObject, "a",
-                        "com.tencent.mobileqq.app.QQAppInterface");
-            }
+            reload();
+            mQQMessageFacade = thisObject;
+            mQQAppInterface = getObjectField(thisObject, "a",
+                    "com.tencent.mobileqq.app.QQAppInterface");
             if (mSelfUin == null && mQQAppInterface != null) {
-                mSelfUin = (String) callMethod(mQQAppInterface, "getAccount");
+                mSelfUin = getAccount();
             }
             if (MessageRecordFactory == null) {
                 MessageRecordFactory = findClass("com.tencent.mobileqq.service.message.MessageRecordFactory", loader);
@@ -103,29 +106,28 @@ public class QQUnrecalledHook {
             if (ContactUtils == null) {
                 ContactUtils = findClass("com.tencent.mobileqq.utils.ContactUtils", loader);
             }
-
-            if (mNotificationContext == null) {
-                mNotificationContext = (Context) callStaticMethod(
-                        findClass("com.tencent.qphone.base.util.BaseApplication", loader),
-                        "getContext");
+            if (BaseApplicationClass == null) {
+                BaseApplicationClass = findClass("com.tencent.qphone.base.util.BaseApplication", loader);
             }
-            if (mNotificationClass == null) {
-                mNotificationClass = findClass("com.tencent.mobileqq.activity.SplashActivity", loader);
+            if (mNotificationContext == null) {
+                mNotificationContext = getContext();
+            }
+            if (NotificationClass == null) {
+                NotificationClass = findClass("com.tencent.mobileqq.activity.SplashActivity", loader);
             }
 
             if (mMessageGetter == null) {
                 mMessageGetter = getMethod(thisObject, "a", List.class, String.class, int.class,
                         long.class, long.class);
             }
-            if (mQQMessageFacade == null) {
-                mQQMessageFacade = thisObject;
-            }
             if (MessageRecord == null) {
                 MessageRecord = findClass("com.tencent.mobileqq.data.MessageRecord", loader);
             }
-            if (mTroopMap == null) {
-                Class<?> TroopAssistantManagerClass =
+            if (TroopAssistantManagerClass == null) {
+                TroopAssistantManagerClass =
                         findClass("com.tencent.mobileqq.managers.TroopAssistantManager", loader);
+            }
+            if (mTroopMap == null) {
                 mTroopMap = (Map) getObjectField(invokeStaticMethod(getStaticMethod(
                         TroopAssistantManagerClass, "a", TroopAssistantManagerClass)), "a",
                         Map.class);
@@ -135,7 +137,6 @@ public class QQUnrecalledHook {
                 mGetTroopInfo = getMethod(mTroopManager, "a", "com.tencent.mobileqq.data.TroopMemberInfo",
                         String.class, String.class);
             }
-
         } catch (Throwable t) {
             XposedBridge.log(t);
         }
@@ -144,8 +145,6 @@ public class QQUnrecalledHook {
 
     private void setMessageTip(Object revokeMsgInfo) {
         long time = (long) getObjectField(revokeMsgInfo, "c", long.class);
-
-
         String friendUin = (String) getObjectField(revokeMsgInfo, "a", String.class);
         String senderUin = (String) getObjectField(revokeMsgInfo, "b", String.class);
 
@@ -157,13 +156,11 @@ public class QQUnrecalledHook {
         long shmsgseq = (long) getObjectField(revokeMsgInfo, "a", long.class);
 
         String uin = istroop == 0 ? senderUin : friendUin;
-
         long id = getMessageId(uin, istroop, shmsgseq, msgUid);
-
         String msg = istroop == 0 ? "对方" : getTroopName(friendUin, senderUin);
 
         mSettings.reload();
-        if (id != -1) {
+        if (id > 0) {
             if (isCallingFrom("C2CMessageProcessor"))
                 return;
 
@@ -305,7 +302,7 @@ public class QQUnrecalledHook {
 
     protected void showTextNotification(String title, String content, Bitmap icon) {
 
-        Notification.Builder builder = new Notification.Builder(mNotificationContext)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(mNotificationContext)
                 .setContentTitle(title)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setAutoCancel(true);
@@ -319,15 +316,15 @@ public class QQUnrecalledHook {
         }
 
         Intent resultIntent = new Intent();
-        resultIntent.setClassName(mNotificationContext.getPackageName(), mNotificationClass.getName());
+        resultIntent.setClassName(mNotificationContext.getPackageName(), NotificationClass.getName());
 
         showNotification(builder, resultIntent);
     }
 
-    protected void showNotification(Notification.Builder builder, Intent intent) {
+    protected void showNotification(NotificationCompat.Builder builder, Intent intent) {
         TaskStackBuilder stackBuilder;
         stackBuilder = TaskStackBuilder.create(mNotificationContext);
-        stackBuilder.addParentStack(mNotificationClass);
+        stackBuilder.addParentStack(NotificationClass);
 
         stackBuilder.addNextIntent(intent);
         PendingIntent resultPendingIntent =
@@ -354,6 +351,29 @@ public class QQUnrecalledHook {
 
     protected boolean isInTroopAssistant(String uin) {
         return mTroopMap != null && mTroopMap.containsKey(uin);
+    }
+
+    protected String getAccount() {
+        if (mQQAppInterface == null)
+            return null;
+        return (String) callMethod(mQQAppInterface, "getAccount");
+    }
+
+    protected Context getContext() {
+        if (BaseApplicationClass == null)
+            return null;
+        return (Context) callStaticMethod(BaseApplicationClass, "getContext");
+    }
+
+    protected void reload() {
+        String uin = getAccount();
+        if (uin == null || mSelfUin == null || uin.equals(mSelfUin))
+            return;
+
+        mSelfUin = null;
+        mTroopMap = null;
+        mGetTroopInfo = null;
+        mQQMessageFacade = null;
     }
 
 
