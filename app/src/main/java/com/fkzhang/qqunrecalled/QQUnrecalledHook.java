@@ -18,6 +18,7 @@ import java.util.Random;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
 
 import static com.fkzhang.qqunrecalled.ReflectionUtil.getMethod;
 import static com.fkzhang.qqunrecalled.ReflectionUtil.getObjectField;
@@ -46,6 +47,8 @@ public class QQUnrecalledHook {
     private Method mMessageGetter;
     private Object mQQMessageFacade;
     private Map mTroopMap;
+    private Method mGetTroopInfo;
+    private Object mTroopManager;
 
     public QQUnrecalledHook() {
         mSettings = new SettingsHelper("com.fkzhang.qqunrecalled");
@@ -127,6 +130,11 @@ public class QQUnrecalledHook {
                         TroopAssistantManagerClass, "a", TroopAssistantManagerClass)), "a",
                         Map.class);
             }
+            if (mGetTroopInfo == null && mQQAppInterface != null) {
+                mTroopManager = callMethod(mQQAppInterface, "getManager", 51);
+                mGetTroopInfo = getMethod(mTroopManager, "a", "com.tencent.mobileqq.data.TroopMemberInfo",
+                        String.class, String.class);
+            }
 
         } catch (Throwable t) {
             XposedBridge.log(t);
@@ -152,7 +160,7 @@ public class QQUnrecalledHook {
 
         long id = getMessageId(uin, istroop, shmsgseq, msgUid);
 
-        String msg = istroop == 0 ? "对方" : getFriendName(null, senderUin);
+        String msg = istroop == 0 ? "对方" : getTroopName(friendUin, senderUin);
 
         mSettings.reload();
         if (id != -1) {
@@ -176,7 +184,7 @@ public class QQUnrecalledHook {
                             && istroop == 1 && isInTroopAssistant(uin)))
                 return;
 
-            showMessageNotification(senderUin, message);
+            showMessageNotification(istroop == 0 ? null : friendUin, senderUin, message);
         } else {
             msg += " " + mSettings.getString("qq_recalled_offline", "撤回了一条消息 (离线时)");
             showMessageTip(friendUin, senderUin, msgUid, shmsgseq, time, msg, istroop);
@@ -223,17 +231,31 @@ public class QQUnrecalledHook {
         String nickname = null;
 
         if (friendUin != null) {
-            nickname = (String) callStaticMethod(ContactUtils, "a", mQQAppInterface, senderUin,
-                    friendUin, 2, 0);
-            if (TextUtils.isEmpty(nickname)) {
-                nickname = (String) callStaticMethod(ContactUtils, "c", mQQAppInterface, friendUin, senderUin);
-            }
+            nickname = (String) callStaticMethod(ContactUtils, "c", mQQAppInterface, friendUin, senderUin);
         }
         if (TextUtils.isEmpty(nickname)) {
             nickname = (String) callStaticMethod(ContactUtils, "b", mQQAppInterface, senderUin, true);
         }
         if (TextUtils.isEmpty(nickname)) {
             nickname = senderUin;
+        }
+        return nickname;
+    }
+
+    protected String getTroopName(String friendUin, String senderUin) {
+        if (mTroopManager == null || friendUin == null)
+            return getFriendName(friendUin, senderUin);
+
+        Object troopMemberInfo = invokeMethod(mGetTroopInfo, mTroopManager, friendUin, senderUin);
+        if (troopMemberInfo == null) {
+            return getFriendName(friendUin, senderUin);
+        }
+        String nickname = (String) XposedHelpers.getObjectField(troopMemberInfo, "troopnick");
+        if (TextUtils.isEmpty(nickname)) {
+            nickname = (String) XposedHelpers.getObjectField(troopMemberInfo, "friendnick");
+        }
+        if (TextUtils.isEmpty(nickname)) {
+            nickname = getFriendName(friendUin, senderUin);
         }
         return nickname;
     }
@@ -261,14 +283,14 @@ public class QQUnrecalledHook {
     }
 
 
-    protected void showMessageNotification(String uin, String msg) {
+    protected void showMessageNotification(String frienduin, String senderuin, String msg) {
         try {
             if (TextUtils.isEmpty(msg))
                 return;
 
-            String title = getFriendName(null, uin) + " " + mSettings.getString("qq_recalled",
+            String title = getTroopName(frienduin, senderuin) + " " + mSettings.getString("qq_recalled",
                     "尝试撤回一条消息");
-            showTextNotification(title, msg, getAvatar(uin));
+            showTextNotification(title, msg, getAvatar(senderuin));
         } catch (Throwable t) {
             XposedBridge.log(t);
         }

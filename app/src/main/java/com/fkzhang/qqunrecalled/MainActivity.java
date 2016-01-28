@@ -83,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void afterTextChanged(Editable s) {
-                String t = s.toString();
+                String t = s.toString().trim();
                 if (TextUtils.isEmpty(t))
                     return;
                 settingsHelper.setString("qq_recalled", t);
