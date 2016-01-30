@@ -5,6 +5,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.support.v4.app.NotificationCompat;
@@ -18,6 +20,7 @@ import java.util.Map;
 import java.util.Random;
 
 import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XC_MethodReplacement;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 
@@ -63,35 +66,87 @@ public class QQUnrecalledHook {
         } catch (Throwable t) {
             XposedBridge.log(t);
         }
+        try {
+            hookApplicationPackageManager(loader);
+        } catch (Throwable t) {
+            XposedBridge.log(t);
+        }
     }
 
     protected void hookQQMessageFacade(final ClassLoader loader) {
         findAndHookMethod("com.tencent.mobileqq.app.message.QQMessageFacade", loader,
-                "a", ArrayList.class, boolean.class, new XC_MethodHook() {
+                "a", ArrayList.class, boolean.class, new XC_MethodReplacement() {
                     @Override
-                    protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param)
-                            throws Throwable {
-                        param.setResult(null); // prevent call
-
-                        ArrayList list = (ArrayList) param.args[0];
-                        if (list == null || list.isEmpty())
-                            return;
-
-                        Object obj = list.get(0);
-
-                        initObjects(param.thisObject, loader);
-
+                    protected Object replaceHookedMethod(MethodHookParam methodHookParam) throws Throwable {
                         try {
-                            setMessageTip(obj);
+                            preventMsgRecall(methodHookParam, loader);
                         } catch (Throwable t) {
                             XposedBridge.log(t);
                         }
-
+                        return null;
                     }
                 });
     }
 
-    private void initObjects(Object thisObject, ClassLoader loader) {
+
+    protected void hookApplicationPackageManager(ClassLoader loader) {
+        findAndHookMethod("android.app.ApplicationPackageManager", loader,
+                "getInstalledApplications", int.class, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        @SuppressWarnings("unchecked") List<ApplicationInfo> applicationInfoList
+                                = (List<ApplicationInfo>) param.getResult();
+                        ArrayList<ApplicationInfo> to_remove = new ArrayList<>();
+                        for (ApplicationInfo info : applicationInfoList) {
+                            if (info.packageName.contains("com.fkzhang") ||
+                                    info.packageName.contains("de.robv.android.xposed.installer")) {
+                                to_remove.add(info);
+                            }
+                        }
+                        if (to_remove.isEmpty())
+                            return;
+
+                        applicationInfoList.removeAll(to_remove);
+                    }
+                });
+        findAndHookMethod("android.app.ApplicationPackageManager", loader,
+                "getInstalledPackages", int.class, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        @SuppressWarnings("unchecked") List<PackageInfo> packageInfoList
+                                = (List<PackageInfo>) param.getResult();
+                        ArrayList<PackageInfo> to_remove = new ArrayList<>();
+                        for (PackageInfo info : packageInfoList) {
+                            if (info.packageName.contains("com.fkzhang") ||
+                                    info.packageName.contains("de.robv.android.xposed.installer")) {
+                                to_remove.add(info);
+                            }
+                        }
+                        if (to_remove.isEmpty())
+                            return;
+
+                        packageInfoList.removeAll(to_remove);
+                    }
+                });
+    }
+
+    protected void preventMsgRecall(XC_MethodHook.MethodHookParam param, ClassLoader loader) {
+        ArrayList list = (ArrayList) param.args[0];
+        if (list == null || list.isEmpty())
+            return;
+
+        Object obj = list.get(0);
+
+        initObjects(param.thisObject, loader);
+
+        try {
+            setMessageTip(obj);
+        } catch (Throwable t) {
+            XposedBridge.log(t);
+        }
+    }
+
+    protected void initObjects(Object thisObject, ClassLoader loader) {
         try {
             reload();
             mQQMessageFacade = thisObject;
@@ -157,14 +212,14 @@ public class QQUnrecalledHook {
 
         String uin = istroop == 0 ? senderUin : friendUin;
         long id = getMessageId(uin, istroop, shmsgseq, msgUid);
-        String msg = istroop == 0 ? "对方" : getTroopName(friendUin, senderUin);
+        String msg = istroop == 0 ? getFriendName(null, senderUin) : getTroopName(friendUin, senderUin);
 
         mSettings.reload();
         if (id > 0) {
             if (isCallingFrom("C2CMessageProcessor"))
                 return;
 
-            msg += " " + mSettings.getString("qq_recalled", "尝试撤回一条消息 （已阻止)");
+            msg = "\"" + msg + "\"" + mSettings.getString("qq_recalled", "尝试撤回一条消息 （已阻止)");
 
             String message = getMessage(uin, istroop, shmsgseq, msgUid);
 
@@ -180,10 +235,10 @@ public class QQUnrecalledHook {
                     (!mSettings.getBoolean("enable_troopassistant_recall_notification", false)
                             && istroop == 1 && isInTroopAssistant(uin)))
                 return;
-
-            showMessageNotification(istroop == 0 ? null : friendUin, senderUin, message);
+            Intent intent = createIntent(uin, istroop);
+            showMessageNotification(istroop == 0 ? null : friendUin, senderUin, message, intent);
         } else {
-            msg += " " + mSettings.getString("qq_recalled_offline", "撤回了一条消息 (没收到)");
+            msg = "\"" + msg + "\"" + mSettings.getString("qq_recalled_offline", "撤回了一条消息 (没收到)");
             showMessageTip(friendUin, senderUin, msgUid, shmsgseq, time, msg, istroop);
         }
 
@@ -194,16 +249,20 @@ public class QQUnrecalledHook {
         if (msgUid != 0) {
             msgUid += new Random().nextInt();
         }
-        List tips = createMessageTip(friendUin, senderUin, msgUid, shmsgseq, time + 1, msg, istroop);
-        if (tips == null || tips.isEmpty())
-            return;
+        try {
+            List tips = createMessageTip(friendUin, senderUin, msgUid, shmsgseq, time + 1, msg, istroop);
+            if (tips == null || tips.isEmpty())
+                return;
 
-        callMethod(mQQMessageFacade, "a", tips, mSelfUin);
+            callMethod(mQQMessageFacade, "a", tips, mSelfUin);
+        } catch (Throwable t) {
+            XposedBridge.log(t);
+        }
+
     }
 
     private List createMessageTip(String friendUin, String senderUin, long msgUid,
-                                  long shmsgseq,
-                                  long time, String msg, int istroop) {
+                                  long shmsgseq, long time, String msg, int istroop) {
         int msgtype = -2031; // MessageRecord.MSG_TYPE_REVOKE_GRAY_TIPS
         Object messageRecord = callStaticMethod(MessageRecordFactory, "a", msgtype);
         if (istroop == 0) { // private chat revoke
@@ -280,14 +339,15 @@ public class QQUnrecalledHook {
     }
 
 
-    protected void showMessageNotification(String frienduin, String senderuin, String msg) {
+    protected void showMessageNotification(String frienduin, String senderuin, String msg,
+                                           Intent intent) {
         try {
             if (TextUtils.isEmpty(msg))
                 return;
 
             String title = getTroopName(frienduin, senderuin) + " " + mSettings.getString("qq_recalled",
                     "尝试撤回一条消息");
-            showTextNotification(title, msg, getAvatar(senderuin));
+            showTextNotification(title, msg, getAvatar(senderuin), intent);
         } catch (Throwable t) {
             XposedBridge.log(t);
         }
@@ -300,7 +360,7 @@ public class QQUnrecalledHook {
         return (Bitmap) callMethod(mQQAppInterface, "a", uin, (byte) 3, true);
     }
 
-    protected void showTextNotification(String title, String content, Bitmap icon) {
+    protected void showTextNotification(String title, String content, Bitmap icon, Intent resultIntent) {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(mNotificationContext)
                 .setContentTitle(title)
@@ -311,12 +371,9 @@ public class QQUnrecalledHook {
             builder.setLargeIcon(icon);
         }
 
-        if (content != null) {
+        if (!TextUtils.isEmpty(content)) {
             builder.setContentText(content);
         }
-
-        Intent resultIntent = new Intent();
-        resultIntent.setClassName(mNotificationContext.getPackageName(), NotificationClass.getName());
 
         showNotification(builder, resultIntent);
     }
@@ -376,5 +433,13 @@ public class QQUnrecalledHook {
         mQQMessageFacade = null;
     }
 
+    protected Intent createIntent(String frienduin, int istroop) {
+        Intent intent = new Intent(mNotificationContext, NotificationClass);
+        intent.putExtra("uin", frienduin);
+        intent.putExtra("uintype", istroop);
+        intent.setAction("com.tencent.mobileqq.action.MAINACTIVITY");
+        intent.putExtra("open_chatfragment", true);
+        return intent;
+    }
 
 }
