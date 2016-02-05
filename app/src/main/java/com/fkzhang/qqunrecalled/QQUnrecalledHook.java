@@ -215,7 +215,8 @@ public class QQUnrecalledHook {
         String msg = istroop == 0 ? getFriendName(null, senderUin) : getTroopName(friendUin, senderUin);
 
         mSettings.reload();
-        if (id > 0) {
+        XposedBridge.log("id: " + id);
+        if ((id != -1 && id != 0)) {
             if (isCallingFrom("C2CMessageProcessor"))
                 return;
 
@@ -295,7 +296,7 @@ public class QQUnrecalledHook {
         if (TextUtils.isEmpty(nickname)) {
             nickname = senderUin;
         }
-        return nickname;
+        return nickname.replaceAll("\\u202E","").trim();
     }
 
     protected String getTroopName(String friendUin, String senderUin) {
@@ -313,7 +314,7 @@ public class QQUnrecalledHook {
         if (TextUtils.isEmpty(nickname)) {
             nickname = getFriendName(friendUin, senderUin);
         }
-        return nickname;
+        return nickname.replaceAll("\\u202E","").trim();
     }
 
 
