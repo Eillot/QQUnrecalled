@@ -18,7 +18,6 @@
             android:name="xposedminversion"
             android:value="46" />
 
-
         <activity
             android:name=".MainActivity"
             android:excludeFromRecents="true"
@@ -44,6 +43,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
+
+        <activity android:name=".SupportActivity"></activity>
     </application>
 
 </manifest>

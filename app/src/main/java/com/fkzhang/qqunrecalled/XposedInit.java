@@ -3,6 +3,7 @@ package com.fkzhang.qqunrecalled;
 import android.util.SparseArray;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
+import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /**
@@ -16,7 +17,7 @@ public class XposedInit implements IXposedHookLoadPackage {
         if (!loadPackageParam.packageName.contains("com.tencent.mobileqq"))
             return;
 
-//        XposedBridge.log("Loaded app: " + loadPackageParam.packageName);
+        XposedBridge.log("Loaded app: " + loadPackageParam.packageName);
 
         QQUnrecalledHook hooks = getHooks(loadPackageParam.appInfo.uid);
         if (hooks != null)

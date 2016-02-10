@@ -8,9 +8,10 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.net.Uri;
 import android.support.v4.app.NotificationCompat;
-import android.support.v4.app.TaskStackBuilder;
 import android.text.TextUtils;
 
 import java.lang.reflect.Method;
@@ -55,6 +56,7 @@ public class QQUnrecalledHook {
     private Object mTroopManager;
     private Class<?> BaseApplicationClass;
     private Class<?> TroopAssistantManagerClass;
+    private boolean mDebug = false;
 
     public QQUnrecalledHook() {
         mSettings = new SettingsHelper("com.fkzhang.qqunrecalled");
@@ -211,19 +213,20 @@ public class QQUnrecalledHook {
         long shmsgseq = (long) getObjectField(revokeMsgInfo, "a", long.class);
 
         String uin = istroop == 0 ? senderUin : friendUin;
-        long id = getMessageId(uin, istroop, shmsgseq, msgUid);
+        Object msgObject = getMessage(uin, istroop, shmsgseq, msgUid);
+        long id = getMessageId(msgObject);
         String msg = istroop == 0 ? getFriendName(null, senderUin) : getTroopName(friendUin, senderUin);
 
         mSettings.reload();
-        if ((id != -1 && id != 0)) {
+        if (id != 0) {
             if (isCallingFrom("C2CMessageProcessor"))
                 return;
 
             msg = "\"" + msg + "\"" + mSettings.getString("qq_recalled", "尝试撤回一条消息 （已阻止)");
 
-            String message = getMessage(uin, istroop, shmsgseq, msgUid);
-
-            if (mSettings.getBoolean("show_content", false)) {
+            String message = getMessageContent(msgObject);
+            int msgtype = getMessageType(msgObject);
+            if (mSettings.getBoolean("show_content", false) && msgtype == -1000 /*text msg*/) {
                 if (!TextUtils.isEmpty(message)) {
                     msg += ": " + message;
                 }
@@ -235,8 +238,26 @@ public class QQUnrecalledHook {
                     (!mSettings.getBoolean("enable_troopassistant_recall_notification", false)
                             && istroop == 1 && isInTroopAssistant(uin)))
                 return;
+
             Intent intent = createIntent(uin, istroop);
-            showMessageNotification(istroop == 0 ? null : friendUin, senderUin, message, intent);
+            String title = getTroopName(istroop == 0 ? null : friendUin, senderUin) +
+                    " " + mSettings.getString("qq_recalled", "尝试撤回一条消息");
+            Bitmap avatar = getAvatar(senderUin);
+
+            if (msgtype == -1000) { // text msg
+                showTextNotification(title, msg, avatar, intent);
+            } else if (msgtype == -2000) { // img
+                try {
+                    if ((boolean) callMethod(msgObject, "hasThumbFile")) {
+                        Bitmap bitmap = BitmapFactory.decodeFile((String) callMethod(msgObject,
+                                "getFilePath", "chatthumb"));
+                        showImageNotification(title, msg, avatar, bitmap, intent);
+                    }
+                } catch (Throwable t) {
+                    XposedBridge.log(t);
+                }
+
+            }
         } else {
             msg = "\"" + msg + "\"" + mSettings.getString("qq_recalled_offline", "撤回了一条消息 (没收到)");
             showMessageTip(friendUin, senderUin, msgUid, shmsgseq, time, msg, istroop);
@@ -295,7 +316,7 @@ public class QQUnrecalledHook {
         if (TextUtils.isEmpty(nickname)) {
             nickname = senderUin;
         }
-        return nickname.replaceAll("\\u202E","").trim();
+        return nickname.replaceAll("\\u202E", "").trim();
     }
 
     protected String getTroopName(String friendUin, String senderUin) {
@@ -313,54 +334,72 @@ public class QQUnrecalledHook {
         if (TextUtils.isEmpty(nickname)) {
             nickname = getFriendName(friendUin, senderUin);
         }
-        return nickname.replaceAll("\\u202E","").trim();
+        return nickname.replaceAll("\\u202E", "").trim();
     }
 
-
-    protected String getMessage(String uin, int istroop, long shmsgseq, long msgUid) {
+    protected Object getMessage(String uin, int istroop, long shmsgseq, long msgUid) {
         List list = (List) invokeMethod(mMessageGetter, mQQMessageFacade, uin, istroop,
                 shmsgseq, msgUid);
 
         if (list == null || list.isEmpty())
             return null;
 
-        return (String) getObjectField(MessageRecord, list.get(0), "msg");
+        return list.get(0);
+    }
+
+    protected String getMessageContent(Object msgObject) {
+        return (String) getObjectField(MessageRecord, msgObject, "msg");
     }
 
 
-    protected long getMessageId(String uin, int istroop, long shmsgseq, long msgUid) {
-        List list = (List) invokeMethod(mMessageGetter, mQQMessageFacade, uin, istroop,
-                shmsgseq, msgUid);
+    protected long getMessageId(Object msgObject) {
+        if (msgObject == null)
+            return 0;
 
-        if (list == null || list.isEmpty())
+        return (long) getObjectField(MessageRecord, msgObject, "msgUid");
+    }
+
+    protected int getMessageType(Object msgObject) {
+        if (msgObject == null)
             return -1;
 
-        return (long) getObjectField(MessageRecord, list.get(0), "msgUid");
+        return (int) getObjectField(MessageRecord, msgObject, "msgtype");
     }
 
-
-    protected void showMessageNotification(String frienduin, String senderuin, String msg,
-                                           Intent intent) {
-        try {
-            if (TextUtils.isEmpty(msg))
-                return;
-
-            String title = getTroopName(frienduin, senderuin) + " " + mSettings.getString("qq_recalled",
-                    "尝试撤回一条消息");
-            showTextNotification(title, msg, getAvatar(senderuin), intent);
-        } catch (Throwable t) {
-            XposedBridge.log(t);
-        }
-    }
 
     public Bitmap getAvatar(String uin) {
         if (mQQAppInterface == null)
             return null;
 
-        return (Bitmap) callMethod(mQQAppInterface, "a", uin, (byte) 3, true);
+        Bitmap bitmap = null;
+        try {
+            bitmap = (Bitmap) callMethod(mQQAppInterface, "a", uin, (byte) 3, true);
+        } catch (Throwable t) {
+            XposedBridge.log(t);
+        }
+        return bitmap;
     }
 
     protected void showTextNotification(String title, String content, Bitmap icon, Intent resultIntent) {
+        if (TextUtils.isEmpty(content))
+            return;
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(mNotificationContext)
+                .setContentTitle(title)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentText(content)
+                .setAutoCancel(true);
+
+        if (icon != null) {
+            builder.setLargeIcon(icon);
+        }
+
+        showNotification(builder, resultIntent);
+    }
+
+    protected void showImageNotification(String title, String content, Bitmap icon, Bitmap bitmap, Intent resultIntent) {
+        if (TextUtils.isEmpty(content))
+            return;
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(mNotificationContext)
                 .setContentTitle(title)
@@ -371,7 +410,10 @@ public class QQUnrecalledHook {
             builder.setLargeIcon(icon);
         }
 
-        if (!TextUtils.isEmpty(content)) {
+        if (bitmap != null) {
+            builder.setStyle(new NotificationCompat.BigPictureStyle()
+                    .bigPicture(bitmap).setSummaryText(content));
+        } else {
             builder.setContentText(content);
         }
 
@@ -379,27 +421,34 @@ public class QQUnrecalledHook {
     }
 
     protected void showNotification(NotificationCompat.Builder builder, Intent intent) {
-        TaskStackBuilder stackBuilder;
-        stackBuilder = TaskStackBuilder.create(mNotificationContext);
-        stackBuilder.addParentStack(NotificationClass);
-
-        stackBuilder.addNextIntent(intent);
-        PendingIntent resultPendingIntent =
-                stackBuilder.getPendingIntent(0, PendingIntent.FLAG_UPDATE_CURRENT);
-        builder.setContentIntent(resultPendingIntent);
+        int notifyId = getNotificationId();
+        builder.setContentIntent(PendingIntent.getActivity(mNotificationContext, notifyId,
+                intent, PendingIntent.FLAG_UPDATE_CURRENT));
 
         Notification notification = builder.build();
-        notification.flags = Notification.FLAG_ONLY_ALERT_ONCE | Notification.FLAG_SHOW_LIGHTS
+        notification.flags = Notification.FLAG_SHOW_LIGHTS
                 | Notification.FLAG_AUTO_CANCEL;
 
         notification.ledOnMS = 300;
         notification.ledOffMS = 1000;
         notification.ledARGB = Color.GREEN;
 
+        if (mSettings.getBoolean("vibrate_enable", false)) {
+            notification.defaults |= Notification.DEFAULT_VIBRATE;
+        }
+        if (mSettings.getBoolean("ringtone_enable", false)) {
+            String uriString = mSettings.getString("ringtone", "");
+            if (!TextUtils.isEmpty(uriString)) {
+                notification.sound = Uri.parse(uriString);
+            } else {
+                notification.defaults |= Notification.DEFAULT_SOUND;
+            }
+        }
+
         NotificationManager mNotificationManager =
                 (NotificationManager) mNotificationContext
                         .getSystemService(Context.NOTIFICATION_SERVICE);
-        mNotificationManager.notify(getNotificationId(), notification);
+        mNotificationManager.notify(notifyId, notification);
     }
 
     protected int getNotificationId() {
@@ -440,6 +489,18 @@ public class QQUnrecalledHook {
         intent.setAction("com.tencent.mobileqq.action.MAINACTIVITY");
         intent.putExtra("open_chatfragment", true);
         return intent;
+    }
+
+    public void log(String msg) {
+        if (mDebug) {
+            XposedBridge.log("" + msg);
+        }
+    }
+
+    public void log(Throwable t) {
+        if (mDebug) {
+            XposedBridge.log(t);
+        }
     }
 
 }

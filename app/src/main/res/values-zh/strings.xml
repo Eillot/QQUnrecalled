@@ -9,4 +9,11 @@
     <string name="recalled_message">撤回消息</string>
     <string name="enable_troopassistant_notification">开启群助手里的群聊消息撤回通知</string>
     <string name="qq_recalled_offline">撤回了一条消息 (没收到)</string>
+    <string name="default_text">跟随系统</string>
+    <string name="enable_ringtone">开启铃声</string>
+    <string name="enable_vibrate">开启震动</string>
+    <string name="select_ringtone">选择铃声</string>
+    <string name="support">如果喜欢我的作品，想支持我点这里</string>
+    <string name="alipay">支付宝</string>
+    <string name="wechat">微信</string>
 </resources>
