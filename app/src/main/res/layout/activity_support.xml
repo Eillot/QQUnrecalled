@@ -9,10 +9,20 @@
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context="com.fkzhang.qqunrecalled.SupportActivity">
 
+    <TextView
+        android:id="@+id/textView4"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:text="@string/click_to_download_from_the_web"
+        android:textAppearance="?android:attr/textAppearanceMedium" />
+
     <ListView
         android:id="@+id/qr_list"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:layout_below="@id/textView4" />
 
 
 </RelativeLayout>

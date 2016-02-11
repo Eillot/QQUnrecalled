@@ -247,16 +247,7 @@ public class QQUnrecalledHook {
             if (msgtype == -1000) { // text msg
                 showTextNotification(title, msg, avatar, intent);
             } else if (msgtype == -2000) { // img
-                try {
-                    if ((boolean) callMethod(msgObject, "hasThumbFile")) {
-                        Bitmap bitmap = BitmapFactory.decodeFile((String) callMethod(msgObject,
-                                "getFilePath", "chatthumb"));
-                        showImageNotification(title, msg, avatar, bitmap, intent);
-                    }
-                } catch (Throwable t) {
-                    XposedBridge.log(t);
-                }
-
+                showImageNotification(title, msg, avatar, getImage(msgObject), intent);
             }
         } else {
             msg = "\"" + msg + "\"" + mSettings.getString("qq_recalled_offline", "撤回了一条消息 (没收到)");
@@ -503,4 +494,30 @@ public class QQUnrecalledHook {
         }
     }
 
+    protected Bitmap getImage(Object msgObject) {
+        Bitmap bitmap = null;
+
+        try {
+            if ((boolean) callMethod(msgObject, "hasBigFile")) {
+                bitmap = BitmapFactory.decodeFile((String) callMethod(msgObject,
+                        "getFilePath", "chatimg"));
+                if (bitmap != null) {
+                    return bitmap;
+                }
+            }
+        } catch (Throwable t) {
+            log(t);
+        }
+
+        try {
+            if ((boolean) callMethod(msgObject, "hasThumbFile")) {
+                bitmap = BitmapFactory.decodeFile((String) callMethod(msgObject,
+                        "getFilePath", "chatthumb"));
+            }
+        } catch (Throwable t) {
+            log(t);
+        }
+
+        return bitmap;
+    }
 }
