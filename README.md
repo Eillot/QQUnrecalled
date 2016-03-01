@@ -10,6 +10,8 @@ Only support mobileQQ, tested with v6.2.0.2655 and v6.2.1.2690
 
 测试过：v6.2.0.2655 和 v6.2.1.2690
 
+因为某人“参考”（拷贝）源代码作为自己的作品 我决定就算有新版这里的源代码也不会再更新了！
+
 
 [download/下载](https://github.com/fkzhang/QQUnrecalled/releases/download/v1.3.0/QQUnrecalled1.3.0.apk)
 
